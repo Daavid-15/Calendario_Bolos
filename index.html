@@ -119,7 +119,8 @@
   .tick-btn svg{width:14px;height:14px;display:none;}
   .tick-btn.checked svg{display:block;}
 
-  .fab{position:fixed;right:20px;bottom:28px;width:58px;height:58px;border-radius:50%;background:var(--gold);color:var(--ink);font-size:30px;font-weight:400;display:flex;align-items:center;justify-content:center;border:2.5px solid var(--outline);box-shadow:4px 4px 0 rgba(20,24,28,0.18);padding-bottom:env(safe-area-inset-bottom);z-index:20;}
+  .fab{position:fixed;right:20px;bottom:28px;width:58px;height:58px;border-radius:50%;background:var(--gold);display:flex;align-items:center;justify-content:center;box-shadow:0 10px 22px rgba(204,144,36,0.45),0 2px 8px rgba(20,24,28,0.18);padding-bottom:env(safe-area-inset-bottom);z-index:20;transition:transform .15s ease,box-shadow .15s ease;}
+  .fab:active{transform:scale(0.92);box-shadow:0 4px 12px rgba(204,144,36,0.45),0 1px 4px rgba(20,24,28,0.18);}
 
   .overlay{position:fixed;inset:0;background:rgba(20,24,28,0.45);display:none;align-items:flex-end;justify-content:center;z-index:30;}
   .overlay.open{display:flex;}
@@ -176,7 +177,7 @@
   .charanga-list{display:flex;flex-direction:column;margin-bottom:4px;}
   .charanga-row{display:flex;align-items:center;gap:10px;padding:10px 2px;border-bottom:1px solid var(--border);}
   .charanga-row:last-child{border-bottom:none;}
-  .charanga-dot{width:16px;height:16px;border-radius:50%;flex-shrink:0;border:1px solid rgba(20,24,28,0.15);}
+  .charanga-dot{width:16px;height:16px;border-radius:50%;flex-shrink:0;border:1px solid rgba(20,24,28,0.15);padding:0;cursor:pointer;}
   .charanga-name{flex:1;font-size:14.5px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .charanga-del{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:15px;flex-shrink:0;}
   .swatch-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;}
@@ -187,7 +188,9 @@
 <body>
 <div id="app"><div class="empty-state">Cargando…</div></div>
 <div class="overlay" id="overlay"><div class="sheet" id="sheet"></div></div>
-<button class="fab" onclick="openForm({fecha: todayStr()})">+</button>
+<button class="fab" onclick="openForm({fecha: todayStr()})" aria-label="Nuevo bolo">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#14181C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+</button>
 
 <script>
   const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
@@ -196,6 +199,8 @@
   const ENTRIES_KEY = 'bolos-entries-v1';
   const CHARANGAS_KEY = 'bolos-charangas-v1';
   const SWATCHES = ['#2C5A9C','#CC9024','#7D8014','#842430','#1F8A70','#7A4FA0','#D8240C','#C2578A','#2C2C2C','#0E7C86','#E07B39','#3D5A80','#4A7C59','#9B2242','#5C6BC0','#B5838D','#8D6E63','#2E9CCA'];
+  const UNASSIGNED = '__sin_asignar__';
+  const UNASSIGNED_COLOR = '#9AA1AC';
 
   let entries = [];
   let charangas = [];
@@ -558,12 +563,27 @@
   })();
 
   /* ---------- Filtro por charanga (chips reutilizables) ---------- */
-  function filterChipsHtml(filterId, buildOnclick){
-    if(!charangas.length) return '';
+  function matchesFilter(e, filterId){
+    if(!filterId) return true;
+    if(filterId === UNASSIGNED) return !e.charangaId;
+    return e.charangaId === filterId;
+  }
+
+  function filterChipsHtml(scopedEntries, filterId, buildOnclick){
+    const presentIds = new Set(scopedEntries.map(e => e.charangaId || ''));
+    const hasUnassigned = presentIds.has('');
+    const relevantCharangas = charangas.filter(c => presentIds.has(c.id));
+    const optionCount = (hasUnassigned ? 1 : 0) + relevantCharangas.length;
+    if(optionCount <= 1) return '';
+
     const allActive = !filterId;
+    const unassignedActive = filterId === UNASSIGNED;
     let html = `<div class="filter-row">`;
     html += `<button type="button" class="filter-chip ${allActive?'active':''}" style="${allActive?'border-color:var(--ink)':''}" onclick="${buildOnclick('')}">Todas</button>`;
-    charangas.forEach(c => {
+    if(hasUnassigned){
+      html += `<button type="button" class="filter-chip ${unassignedActive?'active':''}" style="${unassignedActive?`border-color:${UNASSIGNED_COLOR}`:''}" onclick="${buildOnclick(UNASSIGNED)}"><span class="dot" style="background:${UNASSIGNED_COLOR}"></span>Sin asignar</button>`;
+    }
+    relevantCharangas.forEach(c => {
       const active = filterId === c.id;
       html += `<button type="button" class="filter-chip ${active?'active':''}" style="${active?`border-color:${c.color}`:''}" onclick="${buildOnclick(c.id)}"><span class="dot" style="background:${c.color}"></span>${escapeHtml(c.nombre)}</button>`;
     });
@@ -575,12 +595,12 @@
   function openPendienteSheet(filterId){
     filterId = filterId || '';
     const today = todayStr();
-    let list = entries.filter(e => !e.cobrado && e.fecha <= today);
-    if(filterId) list = list.filter(e => e.charangaId === filterId);
+    const scoped = entries.filter(e => !e.cobrado && e.fecha <= today);
+    let list = filterId ? scoped.filter(e => matchesFilter(e, filterId)) : scoped;
     list = list.sort((a,b) => a.fecha === b.fecha ? (a.hora||'').localeCompare(b.hora||'') : a.fecha.localeCompare(b.fecha));
     const total = list.reduce((sum,e) => sum + (Number(e.dinero)||0), 0);
-    const emptyMsg = filterId ? 'Esta charanga no tiene nada pendiente de cobro.' : 'No tienes nada pendiente de cobro.';
-    const chips = filterChipsHtml(filterId, id => `openPendienteSheet('${id}')`);
+    const emptyMsg = !filterId ? 'No tienes nada pendiente de cobro.' : (filterId === UNASSIGNED ? 'No hay bolos pendientes sin charanga asignada.' : 'Esta charanga no tiene nada pendiente de cobro.');
+    const chips = filterChipsHtml(scoped, filterId, id => `openPendienteSheet('${id}')`);
     showSheet(`
       <div class="sheet-handle"></div>
       <div class="sheet-title">Pendiente</div>
@@ -608,7 +628,7 @@
   }
 
   /* ---------- Cobrado: desglose por año y mes ---------- */
-  function cobradoEntries(filterId){ return entries.filter(e => e.cobrado && (!filterId || e.charangaId === filterId)); }
+  function cobradoEntries(filterId){ return entries.filter(e => e.cobrado && matchesFilter(e, filterId)); }
 
   function yearsWithCobros(filterId){
     const set = new Set();
@@ -634,7 +654,8 @@
     const y = year || currentYear;
     const isCurrent = y === currentYear;
     const totals = monthlyTotalsForYear(y, filterId);
-    const chips = filterChipsHtml(filterId, id => `openCobradoSheet(${y}, '${id}')`);
+    const yearEntries = entries.filter(e => e.cobrado && Number(e.fecha.slice(0,4)) === y);
+    const chips = filterChipsHtml(yearEntries, filterId, id => `openCobradoSheet(${y}, '${id}')`);
 
     let pastYearsHtml = '';
     if(isCurrent){
@@ -675,12 +696,12 @@
 
   function openCobradoMonthSheet(year, monthIndex, filterId){
     filterId = filterId || '';
-    let list = entries.filter(e => e.cobrado && Number(e.fecha.slice(0,4)) === year && Number(e.fecha.slice(5,7)) - 1 === monthIndex);
-    if(filterId) list = list.filter(e => e.charangaId === filterId);
+    const scoped = entries.filter(e => e.cobrado && Number(e.fecha.slice(0,4)) === year && Number(e.fecha.slice(5,7)) - 1 === monthIndex);
+    let list = filterId ? scoped.filter(e => matchesFilter(e, filterId)) : scoped;
     list = list.sort((a,b) => a.fecha === b.fecha ? (a.hora||'').localeCompare(b.hora||'') : a.fecha.localeCompare(b.fecha));
     const total = list.reduce((s,e) => s + (Number(e.dinero)||0), 0);
     const label = `${MESES[monthIndex][0].toUpperCase()+MESES[monthIndex].slice(1)} ${year}`;
-    const chips = filterChipsHtml(filterId, id => `openCobradoMonthSheet(${year}, ${monthIndex}, '${id}')`);
+    const chips = filterChipsHtml(scoped, filterId, id => `openCobradoMonthSheet(${year}, ${monthIndex}, '${id}')`);
     showSheet(`
       <div class="sheet-handle"></div>
       <button class="sheet-back" onclick="openCobradoSheet(${year}, '${filterId}')">‹ ${year}</button>
@@ -715,7 +736,7 @@
     }
     return `<div class="charanga-list">${charangas.map(c => `
       <div class="charanga-row">
-        <span class="charanga-dot" style="background:${c.color}"></span>
+        <button type="button" class="charanga-dot" style="background:${c.color}" onclick="openCharangaColorSheet('${c.id}')" aria-label="Cambiar color de ${escapeHtml(c.nombre)}"></button>
         <span class="charanga-name">${escapeHtml(c.nombre)}</span>
         <button class="charanga-del" onclick="deleteCharanga('${c.id}')" aria-label="Eliminar ${escapeHtml(c.nombre)}">✕</button>
       </div>
@@ -757,6 +778,28 @@
     render();
   }
 
+  function openCharangaColorSheet(id){
+    const ch = charangas.find(c => c.id === id);
+    if(!ch) return;
+    showSheet(`
+      <div class="sheet-handle"></div>
+      <button class="sheet-back" onclick="openSettingsSheet()">‹ Ajustes</button>
+      <div class="sheet-title">Color de ${escapeHtml(ch.nombre)}</div>
+      <div class="swatch-row">
+        ${SWATCHES.map(c => `<button type="button" class="swatch ${c===ch.color?'selected':''}" data-color="${c}" style="background:${c}" onclick="setCharangaColor('${id}', '${c}')" aria-label="Color ${c}"></button>`).join('')}
+      </div>
+    `);
+  }
+
+  function setCharangaColor(id, color){
+    const ch = charangas.find(c => c.id === id);
+    if(!ch) return;
+    ch.color = color;
+    saveCharangas();
+    render();
+    openCharangaColorSheet(id);
+  }
+
   function openSettingsSheet(){
     newCharangaColor = SWATCHES[charangas.length % SWATCHES.length];
     showSheet(`
@@ -775,14 +818,11 @@
       <div class="settings-divider"></div>
 
       <div class="settings-section-title">Copia de seguridad</div>
-      <p class="sheet-text">Los bolos y las charangas se guardan solo en este navegador. Exporta, copia o pega una copia de vez en cuando para tenerla a salvo o pasarla a otro móvil.</p>
+      <p class="sheet-text">Los bolos y las charangas se guardan solo en este navegador. Copia o pega una copia de vez en cuando para tenerla a salvo o pasarla a otro móvil.</p>
       <div class="sheet-actions-col">
-        <button class="btn btn-ghost" style="width:100%" onclick="exportData()">Exportar copia (.txt)</button>
         <button class="btn btn-ghost" style="width:100%" onclick="copyBackupToClipboard()">Copiar al portapapeles</button>
-        <button class="btn btn-ghost" style="width:100%" onclick="document.getElementById('import-input').click()">Importar archivo</button>
         <button class="btn btn-ghost" style="width:100%" onclick="openPasteImportSheet()">Pegar copia</button>
       </div>
-      <input type="file" id="import-input" accept=".txt,.csv" style="display:none" onchange="handleImportFile(this)">
     `);
   }
 
@@ -868,19 +908,6 @@
     openImportConfirm(parsed.boRows.length);
   }
 
-  function exportData(){
-    const csv = buildBackupText();
-    const blob = new Blob([csv], {type:'text/plain;charset=utf-8'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `sincopa-backup-${todayStr().replace(/-/g,'')}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-
   function parseBackup(text){
     const lines = text.split(/\r?\n/);
     let mode = null;
@@ -912,23 +939,6 @@
       }
     }
     return { chRows, boRows };
-  }
-
-  function handleImportFile(input){
-    const file = input.files[0];
-    if(!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const parsed = parseBackup(ev.target.result);
-      input.value = '';
-      if(parsed.boRows.length === 0 && parsed.chRows.length === 0){
-        alert('No se ha encontrado ningún dato válido en el archivo.');
-        return;
-      }
-      pendingImport = parsed;
-      openImportConfirm(parsed.boRows.length);
-    };
-    reader.readAsText(file, 'UTF-8');
   }
 
   function openImportConfirm(count){
