@@ -353,9 +353,9 @@
         </div>
         <div class="entry-side">
           <div class="entry-money">${formatMoney(e.dinero)}</div>
-          <span class="tick-btn ${e.cobrado?'checked':''}" aria-label="${e.cobrado?'Cobrado':'Pendiente'}">
+          <button class="tick-btn ${e.cobrado?'checked':''}" aria-label="${e.cobrado?'Cobrado':'Pendiente'}" onclick="event.stopPropagation(); if(confirm('${e.cobrado ? '¿Marcar este bolo como pendiente de nuevo?' : '¿Marcar este bolo como cobrado?'}')){ toggleCobrado('${e.id}'); render(); }">
             <svg viewBox="0 0 24 24" fill="none" stroke="#FCFCFC" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          </span>
+          </button>
         </div>
       </div>
     `;
@@ -450,7 +450,7 @@
         </div>
         <div class="field">
           <label>Descripción</label>
-          <textarea id="f-descripcion" rows="3" placeholder="Notas, contacto, lo que haga falta...">${escapeHtml(entry.descripcion)}</textarea>
+          <textarea id="f-descripcion" rows="3" placeholder="Notas...">${escapeHtml(entry.descripcion)}</textarea>
         </div>
         <div class="toggle-row" onclick="toggleFormSwitch()">
           <span>Cobrado</span>
