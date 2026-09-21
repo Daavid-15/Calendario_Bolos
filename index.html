@@ -465,6 +465,18 @@
     return segments.sort((a,b) => b.value - a.value);
   }
 
+  function buildCharangaMoneySegments(list){
+    const byId = {};
+    list.forEach(e => {
+      const key = e.charangaId || '__unassigned__';
+      byId[key] = (byId[key]||0) + (Number(e.dinero)||0);
+    });
+    const segments = [];
+    charangas.forEach(c => { if(byId[c.id]) segments.push({ label: c.nombre, value: byId[c.id], color: c.color }); });
+    if(byId['__unassigned__']) segments.push({ label: 'Sin asignar', value: byId['__unassigned__'], color: UNASSIGNED_COLOR });
+    return segments.sort((a,b) => b.value - a.value);
+  }
+
   function pieChartSvg(segments, size){
     size = size || 108;
     const total = segments.reduce((s,seg) => s + seg.value, 0);
@@ -487,15 +499,32 @@
     return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" style="flex-shrink:0">${paths}</svg>`;
   }
 
-  function pieLegendHtml(segments){
+  function pieLegendHtml(segments, isMoney){
     const total = segments.reduce((s,seg) => s + seg.value, 0);
     return `<div class="pie-legend">${segments.map(seg => `
       <div class="pie-legend-row">
         <span class="mini-dot" style="background:${seg.color}"></span>
         <span class="pie-legend-label">${escapeHtml(seg.label)}</span>
-        <span class="pie-legend-value">${seg.value} · ${total>0?Math.round(seg.value/total*100):0}%</span>
+        <span class="pie-legend-value">${isMoney ? formatMoney(seg.value) : seg.value} · ${total>0?Math.round(seg.value/total*100):0}%</span>
       </div>
     `).join('')}</div>`;
+  }
+
+  function barChartHtml(labels, values, color, valueFormatter){
+    const max = Math.max(1, ...values);
+    let html = `<div class="bar-chart-month">`;
+    values.forEach((v,i) => {
+      const pct = Math.max((v/max)*100, v>0?10:0);
+      html += `
+        <div class="bar-chart-month-col">
+          <div class="bar-chart-month-value">${v>0?valueFormatter(v):''}</div>
+          <div class="bar-chart-month-bar" style="height:${pct}%;background:${color}"></div>
+          <div class="bar-chart-month-label">${labels[i]}</div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+    return html;
   }
 
   function statsYearChips(){
@@ -589,36 +618,22 @@
       monthCounts[m]++;
       monthMoney[m] += Number(e.dinero)||0;
     });
-    const maxMonthCount = Math.max(1, ...monthCounts);
-    const maxMonthMoney = Math.max(1, ...monthMoney);
 
-    html += `<p class="sheet-text" style="margin-bottom:2px">Bolos por mes</p>`;
-    html += `<div class="bar-chart-month">`;
-    monthCounts.forEach((c,i) => {
-      const pct = Math.max((c/maxMonthCount)*100, c>0?10:0);
-      html += `
-        <div class="bar-chart-month-col">
-          <div class="bar-chart-month-value">${c>0?c:''}</div>
-          <div class="bar-chart-month-bar" style="height:${pct}%"></div>
-          <div class="bar-chart-month-label">${MESES_ABR[i]}</div>
-        </div>
-      `;
-    });
-    html += `</div>`;
-
-    html += `<p class="sheet-text" style="margin-bottom:2px">Facturación por mes</p>`;
-    html += `<div class="bar-chart-month">`;
-    monthMoney.forEach((c,i) => {
-      const pct = Math.max((c/maxMonthMoney)*100, c>0?10:0);
-      html += `
-        <div class="bar-chart-month-col">
-          <div class="bar-chart-month-value">${c>0?compactMoney(c):''}</div>
-          <div class="bar-chart-month-bar" style="height:${pct}%;background:var(--gold)"></div>
-          <div class="bar-chart-month-label">${MESES_ABR[i]}</div>
-        </div>
-      `;
-    });
-    html += `</div>`;
+    if(isTodos){
+      const years = [...new Set(source.map(e => Number(e.fecha.slice(0,4))))].sort((a,b) => a-b);
+      const yearLabels = years.map(String);
+      const yearCounts = years.map(y => source.filter(e => Number(e.fecha.slice(0,4)) === y).length);
+      const yearMoneyArr = years.map(y => source.filter(e => Number(e.fecha.slice(0,4)) === y).reduce((s,e) => s + (Number(e.dinero)||0), 0));
+      html += `<p class="sheet-text" style="margin-bottom:2px">Bolos por año</p>`;
+      html += barChartHtml(yearLabels, yearCounts, 'var(--blue)', v => String(v));
+      html += `<p class="sheet-text" style="margin-bottom:2px">Facturación por año</p>`;
+      html += barChartHtml(yearLabels, yearMoneyArr, 'var(--gold)', compactMoney);
+    } else {
+      html += `<p class="sheet-text" style="margin-bottom:2px">Bolos por mes</p>`;
+      html += barChartHtml(MESES_ABR, monthCounts, 'var(--blue)', v => String(v));
+      html += `<p class="sheet-text" style="margin-bottom:2px">Facturación por mes</p>`;
+      html += barChartHtml(MESES_ABR, monthMoney, 'var(--gold)', compactMoney);
+    }
 
     html += `<div class="stat-row static"><span class="stat-label">Facturación media por bolo</span><span class="stat-amount" style="color:var(--ink)">${formatMoney(avgPerBolo)}</span></div>`;
     if(avgPerHora !== null){
@@ -642,11 +657,11 @@
     if(topMoney && topMoney.value > 0){
       const monthLabel2 = MESES[topMoney.month][0].toUpperCase()+MESES[topMoney.month].slice(1) + (isTodos ? ` ${topMoney.year}` : '');
       const monthEntries2 = source.filter(e => Number(e.fecha.slice(0,4)) === topMoney.year && Number(e.fecha.slice(5,7))-1 === topMoney.month);
-      const segs2 = buildCharangaSegments(monthEntries2);
+      const segs2 = buildCharangaMoneySegments(monthEntries2);
       html += `<div class="settings-divider"></div>`;
       html += `<div class="list-section-title" style="font-size:14px">Mes con más facturación</div>`;
       html += `<p class="sheet-text">${monthLabel2} · ${formatMoney(topMoney.value)}</p>`;
-      html += `<div class="pie-block">${pieChartSvg(segs2)}${pieLegendHtml(segs2)}</div>`;
+      html += `<div class="pie-block">${pieChartSvg(segs2)}${pieLegendHtml(segs2, true)}</div>`;
     }
 
     html += `<div class="settings-divider"></div>`;
