@@ -235,7 +235,7 @@
   let darkMode = false;
   try{ darkMode = localStorage.getItem('bolos-dark-mode') === '1'; }catch(e){ darkMode = false; }
   let listaYear = new Date().getFullYear();
-  let listaFilter = 'futuras';
+  let listaFilter = 'todas';
 
   function applyTheme(){
     document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
@@ -415,7 +415,7 @@
       if(Number(e.fecha.slice(0,4)) !== year) return;
       const isPast = e.fecha < today;
       if(filter === 'pasadas' && !isPast) return;
-      if(filter === 'futuras' && isPast) return;
+      if(filter === 'proximas' && isPast) return;
       counts[Number(e.fecha.slice(5,7)) - 1]++;
     });
     return counts;
@@ -443,7 +443,8 @@
     let html = `
       <div class="view-toggle" style="margin-bottom:16px">
         <button class="${listaFilter==='pasadas'?'active':''}" onclick="setListaFilter('pasadas')">Pasadas</button>
-        <button class="${listaFilter==='futuras'?'active':''}" onclick="setListaFilter('futuras')">Futuras</button>
+        <button class="${listaFilter==='proximas'?'active':''}" onclick="setListaFilter('proximas')">Próximas</button>
+        <button class="${listaFilter==='todas'?'active':''}" onclick="setListaFilter('todas')">Todas</button>
       </div>
     `;
 
@@ -451,8 +452,9 @@
       html += `<button class="sheet-back" onclick="setListaYear(${currentYear})">‹ Año en curso</button>`;
     }
 
+    const filterLabel = listaFilter === 'pasadas' ? 'pasadas' : (listaFilter === 'proximas' ? 'próximas' : '');
     html += `<div class="list-section-title">${y}</div>`;
-    html += `<p class="sheet-text" style="margin-bottom:14px">${totalCount} fecha${totalCount===1?'':'s'} ${listaFilter}</p>`;
+    html += `<p class="sheet-text" style="margin-bottom:14px">${totalCount} fecha${totalCount===1?'':'s'}${filterLabel ? ' ' + filterLabel : ''}</p>`;
 
     html += `<div>`;
     MESES.forEach((mes,i) => {
@@ -491,15 +493,16 @@
       if(Number(e.fecha.slice(0,4)) !== year || Number(e.fecha.slice(5,7)) - 1 !== monthIndex) return false;
       const isPast = e.fecha < today;
       if(filter === 'pasadas') return isPast;
-      if(filter === 'futuras') return !isPast;
+      if(filter === 'proximas') return !isPast;
       return true;
     }).sort((a,b) => a.fecha === b.fecha ? (a.hora||'').localeCompare(b.hora||'') : a.fecha.localeCompare(b.fecha));
     const label = `${MESES[monthIndex][0].toUpperCase()+MESES[monthIndex].slice(1)} ${year}`;
+    const filterLabel = filter === 'pasadas' ? ' pasadas' : (filter === 'proximas' ? ' próximas' : '');
     const refreshCall = `openListaMonthSheet(${year}, ${monthIndex}, '${filter}');`;
     showSheet(`
       <div class="sheet-handle"></div>
       <div class="sheet-title">${label}</div>
-      <p class="sheet-text">${list.length} bolo${list.length===1?'':'s'} ${filter}</p>
+      <p class="sheet-text">${list.length} bolo${list.length===1?'':'s'}${filterLabel}</p>
       ${list.length ? `<div class="entry-list">${list.map(e => entryCardHtml(e, refreshCall)).join('')}</div>` : `<p class="sheet-text">Nada por aquí.</p>`}
     `);
   }
