@@ -670,7 +670,6 @@
     if(winner){
       html += `
         <div class="winner-block">
-          <div class="winner-confetti">🎉 🎊 ✨</div>
           <div class="winner-name" style="color:${winner.c.color}">${escapeHtml(winner.c.nombre)}</div>
           <div class="winner-stats">${winner.count} fecha${winner.count===1?'':'s'} · ${formatMoney(winner.money)}</div>
         </div>
