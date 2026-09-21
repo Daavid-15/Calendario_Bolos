@@ -206,6 +206,10 @@
   .pie-legend-row{display:flex;align-items:center;gap:7px;font-size:12px;}
   .pie-legend-label{flex:1;color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .pie-legend-value{color:var(--text-muted);font-variant-numeric:tabular-nums;flex-shrink:0;}
+  .winner-block{text-align:center;padding:16px 12px 18px;}
+  .winner-confetti{font-size:20px;letter-spacing:8px;margin-bottom:6px;}
+  .winner-name{font-family:'Anton',sans-serif;font-weight:400;font-size:27px;text-transform:uppercase;letter-spacing:0.01em;}
+  .winner-stats{font-size:13px;color:var(--text-muted);margin-top:5px;}
   .stat-row:last-child{border-bottom:none;}
   .stat-row .stat-label{font-size:14.5px;font-weight:600;}
   .stat-row .stat-amount{font-size:14.5px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--green-label);}
@@ -509,12 +513,50 @@
 
   function setStatsYear(y){ statsYear = y; render(); }
 
+  function compactMoney(n){
+    return Math.round(Number(n)||0) + '€';
+  }
+
+  function topYearMonth(list, valueFn){
+    const map = {};
+    list.forEach(e => {
+      const y = Number(e.fecha.slice(0,4));
+      const m = Number(e.fecha.slice(5,7)) - 1;
+      const key = y+'-'+m;
+      if(!map[key]) map[key] = { year:y, month:m, value:0 };
+      map[key].value += valueFn(e);
+    });
+    let best = null;
+    Object.values(map).forEach(v => { if(!best || v.value > best.value) best = v; });
+    return best;
+  }
+
+  function computeCharangaWinner(list){
+    const byId = {};
+    list.forEach(e => {
+      if(!e.charangaId) return;
+      if(!byId[e.charangaId]) byId[e.charangaId] = { count:0, money:0 };
+      byId[e.charangaId].count++;
+      byId[e.charangaId].money += Number(e.dinero)||0;
+    });
+    let winner = null;
+    Object.entries(byId).forEach(([id, stat]) => {
+      const c = charangaOf(id);
+      if(!c) return;
+      if(!winner || stat.count > winner.count || (stat.count === winner.count && stat.money > winner.money)){
+        winner = { c, count: stat.count, money: stat.money };
+      }
+    });
+    return winner;
+  }
+
   function renderStats(){
     if(entries.length === 0){
       return `<div class="empty-state">Todavía no hay datos para estadísticas.<br>Apunta algún bolo primero.</div>`;
     }
-    const yearLabel = statsYear === 'todos' ? 'todos' : statsYear;
-    const source = statsYear === 'todos' ? entries : entries.filter(e => Number(e.fecha.slice(0,4)) === statsYear);
+    const isTodos = statsYear === 'todos';
+    const yearLabel = isTodos ? 'todos' : statsYear;
+    const source = isTodos ? entries : entries.filter(e => Number(e.fecha.slice(0,4)) === statsYear);
 
     let html = `<div class="list-section-title">Resumen ${yearLabel}</div>`;
     html += statsYearChips();
@@ -548,7 +590,9 @@
       monthMoney[m] += Number(e.dinero)||0;
     });
     const maxMonthCount = Math.max(1, ...monthCounts);
+    const maxMonthMoney = Math.max(1, ...monthMoney);
 
+    html += `<p class="sheet-text" style="margin-bottom:2px">Bolos por mes</p>`;
     html += `<div class="bar-chart-month">`;
     monthCounts.forEach((c,i) => {
       const pct = Math.max((c/maxMonthCount)*100, c>0?10:0);
@@ -562,6 +606,20 @@
     });
     html += `</div>`;
 
+    html += `<p class="sheet-text" style="margin-bottom:2px">Facturación por mes</p>`;
+    html += `<div class="bar-chart-month">`;
+    monthMoney.forEach((c,i) => {
+      const pct = Math.max((c/maxMonthMoney)*100, c>0?10:0);
+      html += `
+        <div class="bar-chart-month-col">
+          <div class="bar-chart-month-value">${c>0?compactMoney(c):''}</div>
+          <div class="bar-chart-month-bar" style="height:${pct}%;background:var(--gold)"></div>
+          <div class="bar-chart-month-label">${MESES_ABR[i]}</div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+
     html += `<div class="stat-row static"><span class="stat-label">Facturación media por bolo</span><span class="stat-amount" style="color:var(--ink)">${formatMoney(avgPerBolo)}</span></div>`;
     if(avgPerHora !== null){
       html += `<div class="stat-row static"><span class="stat-label">Precio medio por hora</span><span class="stat-amount" style="color:var(--ink)">${formatMoney(avgPerHora)}/h</span></div>`;
@@ -569,36 +627,45 @@
       html += `<p class="sheet-text" style="margin-top:8px">Añade la duración a tus bolos para ver el precio medio por hora.</p>`;
     }
 
+    const topBolos = topYearMonth(source, () => 1);
+    if(topBolos){
+      const monthLabel = MESES[topBolos.month][0].toUpperCase()+MESES[topBolos.month].slice(1) + (isTodos ? ` ${topBolos.year}` : '');
+      const monthEntries = source.filter(e => Number(e.fecha.slice(0,4)) === topBolos.year && Number(e.fecha.slice(5,7))-1 === topBolos.month);
+      const segs = buildCharangaSegments(monthEntries);
+      html += `<div class="settings-divider"></div>`;
+      html += `<div class="list-section-title" style="font-size:14px">Mes con más bolos</div>`;
+      html += `<p class="sheet-text">${monthLabel} · ${topBolos.value} bolo${topBolos.value===1?'':'s'}</p>`;
+      html += `<div class="pie-block">${pieChartSvg(segs)}${pieLegendHtml(segs)}</div>`;
+    }
+
+    const topMoney = topYearMonth(source, e => Number(e.dinero)||0);
+    if(topMoney && topMoney.value > 0){
+      const monthLabel2 = MESES[topMoney.month][0].toUpperCase()+MESES[topMoney.month].slice(1) + (isTodos ? ` ${topMoney.year}` : '');
+      const monthEntries2 = source.filter(e => Number(e.fecha.slice(0,4)) === topMoney.year && Number(e.fecha.slice(5,7))-1 === topMoney.month);
+      const segs2 = buildCharangaSegments(monthEntries2);
+      html += `<div class="settings-divider"></div>`;
+      html += `<div class="list-section-title" style="font-size:14px">Mes con más facturación</div>`;
+      html += `<p class="sheet-text">${monthLabel2} · ${formatMoney(topMoney.value)}</p>`;
+      html += `<div class="pie-block">${pieChartSvg(segs2)}${pieLegendHtml(segs2)}</div>`;
+    }
+
     html += `<div class="settings-divider"></div>`;
-    html += `<div class="list-section-title" style="font-size:14px">Por charanga</div>`;
+    html += `<div class="list-section-title" style="font-size:14px">Charanga favorita</div>`;
+    const winner = computeCharangaWinner(source);
+    if(winner){
+      html += `
+        <div class="winner-block">
+          <div class="winner-confetti">🎉 🎊 ✨</div>
+          <div class="winner-name" style="color:${winner.c.color}">${escapeHtml(winner.c.nombre)}</div>
+          <div class="winner-stats">${winner.count} fecha${winner.count===1?'':'s'} · ${formatMoney(winner.money)}</div>
+        </div>
+      `;
+    }
     const charangaSegs = buildCharangaSegments(source);
     html += charangaSegs.length
       ? `<div class="pie-block">${pieChartSvg(charangaSegs)}${pieLegendHtml(charangaSegs)}</div>`
       : `<p class="sheet-text">Todavía no hay bolos asignados a ninguna charanga.</p>`;
 
-    let topBolosIdx = 0;
-    monthCounts.forEach((v,i) => { if(v > monthCounts[topBolosIdx]) topBolosIdx = i; });
-    if(monthCounts[topBolosIdx] > 0){
-      const monthLabel = MESES[topBolosIdx][0].toUpperCase()+MESES[topBolosIdx].slice(1);
-      const monthEntries = source.filter(e => Number(e.fecha.slice(5,7))-1 === topBolosIdx);
-      const segs = buildCharangaSegments(monthEntries);
-      html += `<div class="settings-divider"></div>`;
-      html += `<div class="list-section-title" style="font-size:14px">Mes con más bolos</div>`;
-      html += `<p class="sheet-text">${monthLabel} · ${monthCounts[topBolosIdx]} bolo${monthCounts[topBolosIdx]===1?'':'s'}</p>`;
-      html += `<div class="pie-block">${pieChartSvg(segs)}${pieLegendHtml(segs)}</div>`;
-    }
-
-    let topMoneyIdx = 0;
-    monthMoney.forEach((v,i) => { if(v > monthMoney[topMoneyIdx]) topMoneyIdx = i; });
-    if(monthMoney[topMoneyIdx] > 0){
-      const monthLabel2 = MESES[topMoneyIdx][0].toUpperCase()+MESES[topMoneyIdx].slice(1);
-      const monthEntries2 = source.filter(e => Number(e.fecha.slice(5,7))-1 === topMoneyIdx);
-      const segs2 = buildCharangaSegments(monthEntries2);
-      html += `<div class="settings-divider"></div>`;
-      html += `<div class="list-section-title" style="font-size:14px">Mes con más facturación</div>`;
-      html += `<p class="sheet-text">${monthLabel2} · ${formatMoney(monthMoney[topMoneyIdx])}</p>`;
-      html += `<div class="pie-block">${pieChartSvg(segs2)}${pieLegendHtml(segs2)}</div>`;
-    }
 
     return html;
   }
