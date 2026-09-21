@@ -190,6 +190,22 @@
   .settings-divider{height:1px;background:var(--border);margin:22px 0;}
   .stat-row{display:flex;align-items:center;justify-content:space-between;padding:13px 4px;border-bottom:1px solid var(--border);cursor:pointer;}
   .stat-row.static{cursor:default;}
+  .bar-chart-month{display:flex;align-items:flex-end;gap:4px;height:120px;margin:16px 0 4px;}
+  .bar-chart-month-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0;}
+  .bar-chart-month-value{font-size:9px;color:var(--text-muted);margin-bottom:2px;font-variant-numeric:tabular-nums;}
+  .bar-chart-month-bar{width:100%;max-width:18px;background:var(--blue);border-radius:4px 4px 0 0;min-height:2px;transition:height .2s ease;}
+  .bar-chart-month-label{font-size:9px;color:var(--text-muted);margin-top:5px;}
+  .bar-chart-h{display:flex;flex-direction:column;gap:10px;margin:6px 0 14px;}
+  .bar-chart-h-row{display:grid;grid-template-columns:74px 1fr 26px;align-items:center;gap:8px;}
+  .bar-chart-h-label{font-size:12px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .bar-chart-h-track{height:14px;background:var(--surface-alt);border-radius:7px;overflow:hidden;}
+  .bar-chart-h-fill{height:100%;border-radius:7px;transition:width .2s ease;}
+  .bar-chart-h-value{font-size:11px;color:var(--text-muted);text-align:right;font-variant-numeric:tabular-nums;}
+  .pie-block{display:flex;align-items:center;gap:16px;margin:10px 0 6px;}
+  .pie-legend{flex:1;display:flex;flex-direction:column;gap:7px;min-width:0;}
+  .pie-legend-row{display:flex;align-items:center;gap:7px;font-size:12px;}
+  .pie-legend-label{flex:1;color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .pie-legend-value{color:var(--text-muted);font-variant-numeric:tabular-nums;flex-shrink:0;}
   .stat-row:last-child{border-bottom:none;}
   .stat-row .stat-label{font-size:14.5px;font-weight:600;}
   .stat-row .stat-amount{font-size:14.5px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--green-label);}
@@ -234,6 +250,7 @@
   let pendingImport = null;
   let newCharangaColor = SWATCHES[0];
   let darkMode = false;
+  let statsYear = new Date().getFullYear();
   try{ darkMode = localStorage.getItem('bolos-dark-mode') === '1'; }catch(e){ darkMode = false; }
 
   function applyTheme(){
@@ -432,115 +449,156 @@
   }
 
   /* ---------- Estadísticas ---------- */
+  function buildCharangaSegments(list){
+    const byId = {};
+    list.forEach(e => {
+      const key = e.charangaId || '__unassigned__';
+      byId[key] = (byId[key]||0) + 1;
+    });
+    const segments = [];
+    charangas.forEach(c => { if(byId[c.id]) segments.push({ label: c.nombre, value: byId[c.id], color: c.color }); });
+    if(byId['__unassigned__']) segments.push({ label: 'Sin asignar', value: byId['__unassigned__'], color: UNASSIGNED_COLOR });
+    return segments.sort((a,b) => b.value - a.value);
+  }
+
+  function pieChartSvg(segments, size){
+    size = size || 108;
+    const total = segments.reduce((s,seg) => s + seg.value, 0);
+    const r = size/2, cx = r, cy = r;
+    if(total <= 0) return '';
+    if(segments.length === 1){
+      return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" style="flex-shrink:0"><circle cx="${cx}" cy="${cy}" r="${r}" fill="${segments[0].color}"/></svg>`;
+    }
+    let angle = -90, paths = '';
+    segments.forEach(seg => {
+      const sweep = (seg.value/total) * 360;
+      const startRad = angle * Math.PI/180;
+      const endRad = (angle+sweep) * Math.PI/180;
+      const x1 = cx + r*Math.cos(startRad), y1 = cy + r*Math.sin(startRad);
+      const x2 = cx + r*Math.cos(endRad), y2 = cy + r*Math.sin(endRad);
+      const largeArc = sweep > 180 ? 1 : 0;
+      paths += `<path d="M${cx},${cy} L${x1.toFixed(2)},${y1.toFixed(2)} A${r},${r} 0 ${largeArc} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z" fill="${seg.color}"/>`;
+      angle += sweep;
+    });
+    return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" style="flex-shrink:0">${paths}</svg>`;
+  }
+
+  function pieLegendHtml(segments){
+    const total = segments.reduce((s,seg) => s + seg.value, 0);
+    return `<div class="pie-legend">${segments.map(seg => `
+      <div class="pie-legend-row">
+        <span class="mini-dot" style="background:${seg.color}"></span>
+        <span class="pie-legend-label">${escapeHtml(seg.label)}</span>
+        <span class="pie-legend-value">${seg.value} · ${total>0?Math.round(seg.value/total*100):0}%</span>
+      </div>
+    `).join('')}</div>`;
+  }
+
+  function statsYearChips(){
+    const years = [...new Set(entries.map(e => Number(e.fecha.slice(0,4))))].sort((a,b) => b-a);
+    let html = `<div class="filter-row">`;
+    years.forEach(y => {
+      const active = statsYear === y;
+      html += `<button type="button" class="filter-chip ${active?'active':''}" style="${active?'border-color:var(--ink)':''}" onclick="setStatsYear(${y})">${y}</button>`;
+    });
+    const allActive = statsYear === 'todos';
+    html += `<button type="button" class="filter-chip ${allActive?'active':''}" style="${allActive?'border-color:var(--ink)':''}" onclick="setStatsYear('todos')">Todos</button>`;
+    html += `</div>`;
+    return html;
+  }
+
+  function setStatsYear(y){ statsYear = y; render(); }
+
   function renderStats(){
     if(entries.length === 0){
       return `<div class="empty-state">Todavía no hay datos para estadísticas.<br>Apunta algún bolo primero.</div>`;
     }
-    const currentYear = new Date().getFullYear();
-    const yearEntries = entries.filter(e => Number(e.fecha.slice(0,4)) === currentYear);
-    const yearCount = yearEntries.length;
-    const yearTotalMoney = yearEntries.reduce((s,e) => s + (Number(e.dinero)||0), 0);
+    const yearLabel = statsYear === 'todos' ? 'todos' : statsYear;
+    const source = statsYear === 'todos' ? entries : entries.filter(e => Number(e.fecha.slice(0,4)) === statsYear);
 
-    const avgPerBolo = entries.length ? entries.reduce((s,e) => s + (Number(e.dinero)||0), 0) / entries.length : 0;
+    let html = `<div class="list-section-title">Resumen ${yearLabel}</div>`;
+    html += statsYearChips();
 
-    const withDuration = entries.filter(e => Number(e.duracion) > 0);
+    if(source.length === 0){
+      html += `<p class="sheet-text">No hay bolos en ${yearLabel}.</p>`;
+      return html;
+    }
+
+    const totalCount = source.length;
+    const totalMoney = source.reduce((s,e) => s + (Number(e.dinero)||0), 0);
+    const avgPerBolo = totalCount ? totalMoney/totalCount : 0;
+
+    const withDuration = source.filter(e => Number(e.duracion) > 0);
     const totalHoras = withDuration.reduce((s,e) => s + Number(e.duracion), 0);
     const dineroConDuracion = withDuration.reduce((s,e) => s + (Number(e.dinero)||0), 0);
-    const avgPerHora = totalHoras > 0 ? dineroConDuracion / totalHoras : null;
+    const avgPerHora = totalHoras > 0 ? dineroConDuracion/totalHoras : null;
 
-    const charangaStats = charangas.map(c => {
-      const list = entries.filter(e => e.charangaId === c.id);
-      const count = list.length;
-      const totalDinero = list.reduce((s,e) => s + (Number(e.dinero)||0), 0);
-      const avgBolo = count ? totalDinero / count : 0;
-      const listDur = list.filter(e => Number(e.duracion) > 0);
-      const horas = listDur.reduce((s,e) => s + Number(e.duracion), 0);
-      const dineroDur = listDur.reduce((s,e) => s + (Number(e.dinero)||0), 0);
-      const avgHora = horas > 0 ? dineroDur / horas : null;
-      return { c, count, avgBolo, avgHora };
-    }).filter(s => s.count > 0).sort((a,b) => b.count - a.count);
-
-    const sinAsignarList = entries.filter(e => !e.charangaId);
-    const sinAsignarCount = sinAsignarList.length;
-    const sinAsignarAvg = sinAsignarCount ? sinAsignarList.reduce((s,e) => s + (Number(e.dinero)||0), 0) / sinAsignarCount : 0;
-
-    const lugarMap = {};
-    entries.forEach(e => {
-      const raw = (e.lugar||'').trim();
-      if(!raw) return;
-      const key = raw.toLowerCase();
-      if(!lugarMap[key]) lugarMap[key] = { label: raw, count: 0 };
-      lugarMap[key].count++;
-    });
-    let topLugar = null;
-    Object.values(lugarMap).forEach(v => { if(!topLugar || v.count > topLugar.count) topLugar = v; });
-
-    const monthTotals = new Array(12).fill(0);
-    entries.forEach(e => monthTotals[Number(e.fecha.slice(5,7))-1]++);
-    let topMonthIdx = 0;
-    monthTotals.forEach((v,i) => { if(v > monthTotals[topMonthIdx]) topMonthIdx = i; });
-
-    const allTimeTotalMoney = entries.reduce((s,e) => s + (Number(e.dinero)||0), 0);
-
-    let html = `<div class="list-section-title">Resumen de ${currentYear}</div>`;
     html += `
       <div class="summary-row">
-        <div class="summary-chip"><div class="label">Fechas este año</div><div class="amount">${yearCount}</div></div>
-        <div class="summary-chip"><div class="label">Facturado este año</div><div class="amount">${formatMoney(yearTotalMoney)}</div></div>
+        <div class="summary-chip"><div class="label">Fechas</div><div class="amount">${totalCount}</div></div>
+        <div class="summary-chip"><div class="label">Facturación</div><div class="amount">${formatMoney(totalMoney)}</div></div>
       </div>
     `;
 
-    html += `<div>`;
-    html += `<div class="stat-row static"><span class="stat-label">Precio medio por bolo</span><span class="stat-amount" style="color:var(--ink)">${formatMoney(avgPerBolo)}</span></div>`;
+    const monthCounts = new Array(12).fill(0);
+    const monthMoney = new Array(12).fill(0);
+    source.forEach(e => {
+      const m = Number(e.fecha.slice(5,7)) - 1;
+      monthCounts[m]++;
+      monthMoney[m] += Number(e.dinero)||0;
+    });
+    const maxMonthCount = Math.max(1, ...monthCounts);
+
+    html += `<div class="bar-chart-month">`;
+    monthCounts.forEach((c,i) => {
+      const pct = Math.max((c/maxMonthCount)*100, c>0?10:0);
+      html += `
+        <div class="bar-chart-month-col">
+          <div class="bar-chart-month-value">${c>0?c:''}</div>
+          <div class="bar-chart-month-bar" style="height:${pct}%"></div>
+          <div class="bar-chart-month-label">${MESES_ABR[i]}</div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+
+    html += `<div class="stat-row static"><span class="stat-label">Facturación media por bolo</span><span class="stat-amount" style="color:var(--ink)">${formatMoney(avgPerBolo)}</span></div>`;
     if(avgPerHora !== null){
       html += `<div class="stat-row static"><span class="stat-label">Precio medio por hora</span><span class="stat-amount" style="color:var(--ink)">${formatMoney(avgPerHora)}/h</span></div>`;
-    }
-    html += `</div>`;
-    if(avgPerHora === null){
-      html += `<p class="sheet-text" style="margin-top:2px">Añade la duración a tus bolos (en el formulario) para ver el precio medio por hora.</p>`;
-    }
-
-    html += `<div class="settings-divider"></div>`;
-    html += `<div class="list-section-title">Por charanga</div>`;
-    if(charangaStats.length === 0 && sinAsignarCount === 0){
-      html += `<p class="sheet-text">Todavía no hay bolos asignados a ninguna charanga.</p>`;
     } else {
-      html += `<div class="charanga-list">`;
-      charangaStats.forEach(s => {
-        html += `
-          <div class="charanga-row">
-            <span class="charanga-dot" style="background:${s.c.color};cursor:default"></span>
-            <div style="flex:1;min-width:0">
-              <div class="charanga-name">${escapeHtml(s.c.nombre)}</div>
-              <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${s.count} bolo${s.count===1?'':'s'} · ${formatMoney(s.avgBolo)}/bolo${s.avgHora!==null ? ' · '+formatMoney(s.avgHora)+'/h' : ''}</div>
-            </div>
-          </div>
-        `;
-      });
-      if(sinAsignarCount > 0){
-        html += `
-          <div class="charanga-row">
-            <span class="charanga-dot" style="background:${UNASSIGNED_COLOR};cursor:default"></span>
-            <div style="flex:1;min-width:0">
-              <div class="charanga-name">Sin asignar</div>
-              <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${sinAsignarCount} bolo${sinAsignarCount===1?'':'s'} · ${formatMoney(sinAsignarAvg)}/bolo</div>
-            </div>
-          </div>
-        `;
-      }
-      html += `</div>`;
+      html += `<p class="sheet-text" style="margin-top:8px">Añade la duración a tus bolos para ver el precio medio por hora.</p>`;
     }
 
     html += `<div class="settings-divider"></div>`;
-    html += `<div class="list-section-title">Datos curiosos</div>`;
-    html += `<div>`;
-    if(topLugar){
-      html += `<div class="stat-row static"><span class="stat-label">Lugar más repetido</span><span class="stat-amount" style="color:var(--ink)">${escapeHtml(topLugar.label)} (${topLugar.count})</span></div>`;
+    html += `<div class="list-section-title" style="font-size:14px">Por charanga</div>`;
+    const charangaSegs = buildCharangaSegments(source);
+    html += charangaSegs.length
+      ? `<div class="pie-block">${pieChartSvg(charangaSegs)}${pieLegendHtml(charangaSegs)}</div>`
+      : `<p class="sheet-text">Todavía no hay bolos asignados a ninguna charanga.</p>`;
+
+    let topBolosIdx = 0;
+    monthCounts.forEach((v,i) => { if(v > monthCounts[topBolosIdx]) topBolosIdx = i; });
+    if(monthCounts[topBolosIdx] > 0){
+      const monthLabel = MESES[topBolosIdx][0].toUpperCase()+MESES[topBolosIdx].slice(1);
+      const monthEntries = source.filter(e => Number(e.fecha.slice(5,7))-1 === topBolosIdx);
+      const segs = buildCharangaSegments(monthEntries);
+      html += `<div class="settings-divider"></div>`;
+      html += `<div class="list-section-title" style="font-size:14px">Mes con más bolos</div>`;
+      html += `<p class="sheet-text">${monthLabel} · ${monthCounts[topBolosIdx]} bolo${monthCounts[topBolosIdx]===1?'':'s'}</p>`;
+      html += `<div class="pie-block">${pieChartSvg(segs)}${pieLegendHtml(segs)}</div>`;
     }
-    html += `<div class="stat-row static"><span class="stat-label">Mes con más bolos</span><span class="stat-amount" style="color:var(--ink)">${MESES[topMonthIdx][0].toUpperCase()+MESES[topMonthIdx].slice(1)} (${monthTotals[topMonthIdx]})</span></div>`;
-    html += `<div class="stat-row static"><span class="stat-label">Bolos en total</span><span class="stat-amount" style="color:var(--ink)">${entries.length}</span></div>`;
-    html += `<div class="stat-row static"><span class="stat-label">Facturado en total</span><span class="stat-amount" style="color:var(--ink)">${formatMoney(allTimeTotalMoney)}</span></div>`;
-    html += `</div>`;
+
+    let topMoneyIdx = 0;
+    monthMoney.forEach((v,i) => { if(v > monthMoney[topMoneyIdx]) topMoneyIdx = i; });
+    if(monthMoney[topMoneyIdx] > 0){
+      const monthLabel2 = MESES[topMoneyIdx][0].toUpperCase()+MESES[topMoneyIdx].slice(1);
+      const monthEntries2 = source.filter(e => Number(e.fecha.slice(5,7))-1 === topMoneyIdx);
+      const segs2 = buildCharangaSegments(monthEntries2);
+      html += `<div class="settings-divider"></div>`;
+      html += `<div class="list-section-title" style="font-size:14px">Mes con más facturación</div>`;
+      html += `<p class="sheet-text">${monthLabel2} · ${formatMoney(monthMoney[topMoneyIdx])}</p>`;
+      html += `<div class="pie-block">${pieChartSvg(segs2)}${pieLegendHtml(segs2)}</div>`;
+    }
 
     return html;
   }
