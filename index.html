@@ -113,6 +113,11 @@
   .day-more{font-size:8px;color:var(--text-muted);}
 
   .empty-state{text-align:center;color:var(--text-muted);padding:60px 24px;font-size:14px;line-height:1.6;}
+  .license-gate{min-height:70vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 20px;}
+  .license-gate-title{font-family:'Anton',sans-serif;font-weight:400;font-size:32px;color:var(--blue);text-transform:uppercase;margin-bottom:14px;}
+  .license-gate-msg{color:var(--text-muted);font-size:14px;line-height:1.6;max-width:300px;margin-bottom:22px;}
+  .license-gate-input{width:100%;max-width:280px;background:var(--surface-alt);border:1px solid var(--border);border-radius:10px;padding:13px 14px;color:var(--ink);font-size:16px;text-align:center;letter-spacing:0.05em;margin-bottom:12px;text-transform:uppercase;}
+  .license-gate-input:focus{outline:none;border-color:var(--blue);}
 
   .entry-list{display:flex;flex-direction:column;gap:10px;margin-top:4px;}
   .month-divider{font-size:12px;color:var(--text-muted);font-weight:600;margin:18px 2px 4px;}
@@ -247,6 +252,15 @@
   const UNASSIGNED = '__sin_asignar__';
   const UNASSIGNED_COLOR = '#9AA1AC';
 
+  const SUPABASE_URL = 'https://tuvhfjcmiuoentcmmxqx.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_yRFJF6X1cgzVSN_DI49zCA_CiYgnRlG';
+  const LICENSE_KEY_STORAGE = 'yg-license-key';
+  const LICENSE_STATUS_STORAGE = 'yg-license-status';
+  const DEVICE_ID_STORAGE = 'yg-device-id';
+  const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;   // vuelve a comprobar como mucho 1 vez al día
+  const GRACE_PERIOD_MS = 21 * 24 * 60 * 60 * 1000; // margen sin conexión: 21 días
+  const LICENSE_ENFORCEMENT_ENABLED = false; // pon a true cuando quieras empezar a pedir licencia
+
   let entries = [];
   let charangas = [];
   let view = 'calendar';
@@ -256,6 +270,123 @@
   let darkMode = false;
   let statsYear = new Date().getFullYear();
   try{ darkMode = localStorage.getItem('bolos-dark-mode') === '1'; }catch(e){ darkMode = false; }
+
+  function getDeviceId(){
+    let id = null;
+    try{ id = localStorage.getItem(DEVICE_ID_STORAGE); }catch(e){}
+    if(!id){
+      id = 'dev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,10);
+      try{ localStorage.setItem(DEVICE_ID_STORAGE, id); }catch(e){}
+    }
+    return id;
+  }
+
+  async function callVerificarLicencia(clave, dispositivoId){
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/verificar_licencia`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({ p_clave: clave, p_dispositivo_id: dispositivoId })
+    });
+    if(!res.ok) throw new Error('network');
+    return await res.json();
+  }
+
+  function getCachedLicenseStatus(){
+    try{ return JSON.parse(localStorage.getItem(LICENSE_STATUS_STORAGE) || 'null'); }
+    catch(e){ return null; }
+  }
+  function setCachedLicenseStatus(status){
+    try{ localStorage.setItem(LICENSE_STATUS_STORAGE, JSON.stringify(status)); }catch(e){}
+  }
+
+  async function ensureLicenseValid(){
+    let clave = null;
+    try{ clave = localStorage.getItem(LICENSE_KEY_STORAGE); }catch(e){}
+    if(!clave) return { ok:false, reason:'sin_clave' };
+
+    const cached = getCachedLicenseStatus();
+    const now = Date.now();
+    const needsCheck = !cached || (now - cached.checkedAt) > CHECK_INTERVAL_MS;
+
+    if(!needsCheck){
+      return cached.valida ? { ok:true, expira: cached.expira } : { ok:false, reason: cached.motivo, expira: cached.expira };
+    }
+
+    try{
+      const result = await callVerificarLicencia(clave, getDeviceId());
+      const status = { valida: !!result.valida, motivo: result.motivo || null, expira: result.expira || null, checkedAt: now };
+      setCachedLicenseStatus(status);
+      return status.valida ? { ok:true, expira: status.expira } : { ok:false, reason: status.motivo, expira: status.expira };
+    }catch(networkErr){
+      if(cached && cached.valida && (now - cached.checkedAt) <= GRACE_PERIOD_MS){
+        return { ok:true, expira: cached.expira, offline:true };
+      }
+      if(!cached){
+        return { ok:false, reason:'sin_conexion' };
+      }
+      if(!cached.valida){
+        return { ok:false, reason: cached.motivo, expira: cached.expira };
+      }
+      return { ok:false, reason:'gracia_agotada' };
+    }
+  }
+
+  function licenseReasonText(reason, expira){
+    const textos = {
+      sin_clave: 'Introduce tu clave de licencia para usar la aplicación.',
+      no_existe: 'Esa clave no existe. Revisa que la hayas escrito bien.',
+      revocada: 'Esta licencia ha sido desactivada.',
+      caducada: `Tu licencia caducó${expira ? ' el ' + formatDateHuman(expira) : ''}. Contacta para renovarla.`,
+      otro_dispositivo: 'Esta clave ya está activada en otro móvil.',
+      sin_conexion: 'No se pudo comprobar tu licencia. Conéctate a internet e inténtalo de nuevo.',
+      gracia_agotada: 'No hay conexión desde hace demasiado tiempo. Conéctate a internet para seguir usando la app.'
+    };
+    return textos[reason] || 'No se pudo validar tu licencia.';
+  }
+
+  async function submitLicenseKey(){
+    const input = document.getElementById('license-input');
+    const clave = input.value.trim().toUpperCase();
+    const btn = document.getElementById('license-submit-btn');
+    if(!clave) return;
+    btn.textContent = 'Comprobando...';
+    btn.disabled = true;
+    try{ localStorage.setItem(LICENSE_KEY_STORAGE, clave); }catch(e){}
+    localStorage.removeItem(LICENSE_STATUS_STORAGE);
+    const result = await ensureLicenseValid();
+    if(result.ok){ startApp(); }
+    else{ renderLicenseGate(result.reason, result.expira); }
+  }
+
+  async function retryLicenseCheck(){
+    localStorage.removeItem(LICENSE_STATUS_STORAGE);
+    const result = await ensureLicenseValid();
+    const overlay = document.getElementById('overlay');
+    if(overlay) overlay.classList.remove('open');
+    if(result.ok){ startApp(); }
+    else{ renderLicenseGate(result.reason, result.expira); }
+  }
+
+  function renderLicenseGate(reason, expira){
+    const app = document.getElementById('app');
+    const needsInput = reason === 'sin_clave' || reason === 'no_existe' || reason === 'otro_dispositivo';
+    app.innerHTML = `
+      <div class="license-gate">
+        <div class="license-gate-title">YunkeGenda</div>
+        <p class="license-gate-msg">${licenseReasonText(reason, expira)}</p>
+        ${needsInput ? `
+          <input id="license-input" class="license-gate-input" placeholder="Tu clave de licencia" autocapitalize="characters">
+          <button id="license-submit-btn" class="btn btn-primary" style="width:100%" onclick="submitLicenseKey()">Activar</button>
+        ` : `
+          <button class="btn btn-primary" style="width:100%" onclick="retryLicenseCheck()">Reintentar</button>
+        `}
+      </div>
+    `;
+  }
 
   function applyTheme(){
     document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
@@ -1102,10 +1233,23 @@
 
   function openSettingsSheet(){
     newCharangaColor = SWATCHES[charangas.length % SWATCHES.length];
+    let licKey = '';
+    try{ licKey = localStorage.getItem(LICENSE_KEY_STORAGE) || ''; }catch(e){}
+    const licStatus = getCachedLicenseStatus();
+    const licenciaHtml = LICENSE_ENFORCEMENT_ENABLED ? `
+      <div class="settings-section-title">Licencia</div>
+      <p class="sheet-text">Clave: <strong style="color:var(--ink)">${escapeHtml(licKey)}</strong>${licStatus && licStatus.expira ? ` · válida hasta ${formatDateHuman(licStatus.expira)}` : ''}</p>
+      <div class="sheet-actions-col">
+        <button class="btn btn-ghost" style="width:100%" onclick="retryLicenseCheck()">Comprobar ahora</button>
+      </div>
+
+      <div class="settings-divider"></div>
+    ` : '';
     showSheet(`
       <div class="sheet-handle"></div>
       <div class="sheet-title">Ajustes</div>
 
+      ${licenciaHtml}
       <div class="settings-section-title">Apariencia</div>
       <div class="toggle-row" onclick="toggleDarkMode()">
         <span>Modo oscuro</span>
@@ -1318,10 +1462,19 @@
     render();
   }
 
-  loadEntries();
-  loadCharangas();
-  migrateLegacyCharangas();
-  render();
+  function startApp(){
+    loadEntries();
+    loadCharangas();
+    migrateLegacyCharangas();
+    render();
+  }
+
+  (async function boot(){
+    if(!LICENSE_ENFORCEMENT_ENABLED){ startApp(); return; }
+    const result = await ensureLicenseValid();
+    if(result.ok){ startApp(); }
+    else{ renderLicenseGate(result.reason, result.expira); }
+  })();
 </script>
 </body>
 </html>
