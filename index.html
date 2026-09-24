@@ -192,7 +192,7 @@
   .day-entry-row .info .c{font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px;margin-top:2px;}
   .day-entry-row .right{display:flex;align-items:center;gap:10px;flex-shrink:0;}
   .add-here{margin-top:14px;width:100%;padding:12px;border-radius:12px;background:var(--surface-alt);color:var(--gold-dark);font-weight:600;font-size:14px;border:1px dashed var(--gold-dark);}
-  .sheet-text{color:var(--text-muted);font-size:13.5px;line-height:1.55;margin-bottom:16px;}
+  .sheet-text{color:var(--text-muted);font-size:13.5px;line-height:1.55;margin-bottom:10px;}
 
   .settings-section-title{font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px;}
   .settings-divider{height:1px;background:var(--border);margin:14px 0;}
@@ -215,10 +215,11 @@
   .pie-legend-row .mini-dot{width:10px;height:10px;}
   .pie-legend-label{flex:1;color:var(--ink);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .pie-legend-value{color:var(--text-muted);font-variant-numeric:tabular-nums;flex-shrink:0;}
-  .winner-block{text-align:center;padding:8px 12px 10px;}
-  .winner-confetti{font-size:20px;letter-spacing:8px;margin-bottom:6px;}
-  .winner-name{font-family:'Anton',sans-serif;font-weight:400;font-size:27px;text-transform:uppercase;letter-spacing:0.01em;}
-  .winner-stats{font-size:13px;color:var(--text-muted);margin-top:5px;}
+  .winner-block{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 2px 8px;}
+  .winner-name{font-family:'Anton',sans-serif;font-weight:400;font-size:22px;text-transform:uppercase;letter-spacing:0.01em;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .winner-stats{font-size:13px;color:var(--text-muted);white-space:nowrap;flex-shrink:0;}
+  .stats-section-header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 12px;margin-bottom:10px;}
+  .stats-section-value{font-size:12.5px;color:var(--text-muted);text-align:right;white-space:nowrap;}
   .stat-row:last-child{border-bottom:none;}
   .stat-row .stat-label{font-size:14.5px;font-weight:600;}
   .stat-row .stat-amount{font-size:14.5px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--green-label);}
@@ -617,19 +618,25 @@
     size = size || 108;
     const total = segments.reduce((s,seg) => s + seg.value, 0);
     if(total <= 0) return '';
-    const explode = 7;
+    const explode = 3.5;
     const cx = size/2, cy = size/2;
     const baseR = (size/2) - explode;
 
     if(segments.length === 1){
       return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" style="flex-shrink:0"><circle cx="${cx}" cy="${cy}" r="${baseR}" fill="${segments[0].color}" style="stroke:#000;stroke-width:1.5"/></svg>`;
     }
+    let winnerIdx = 0;
+    segments.forEach((seg,i) => { if(seg.value > segments[winnerIdx].value) winnerIdx = i; });
+
     let angle = -90, paths = '';
-    segments.forEach(seg => {
+    segments.forEach((seg, i) => {
       const sweep = (seg.value/total) * 360;
-      const midRad = (angle + sweep/2) * Math.PI/180;
-      const localCx = cx + explode*Math.cos(midRad);
-      const localCy = cy + explode*Math.sin(midRad);
+      let localCx = cx, localCy = cy;
+      if(i === winnerIdx){
+        const midRad = (angle + sweep/2) * Math.PI/180;
+        localCx = cx + explode*Math.cos(midRad);
+        localCy = cy + explode*Math.sin(midRad);
+      }
       const startRad = angle * Math.PI/180;
       const endRad = (angle+sweep) * Math.PI/180;
       const x1 = localCx + baseR*Math.cos(startRad), y1 = localCy + baseR*Math.sin(startRad);
@@ -777,11 +784,11 @@
       html += barChartHtml(MESES_ABR, monthMoney, 'var(--gold)', compactMoney);
     }
 
-    html += `<div class="stat-row static"><span class="stat-label">Facturación media por bolo</span><span class="stat-amount" style="color:var(--ink)">${formatMoney(avgPerBolo)}</span></div>`;
+    html += `<div class="stat-row static" style="padding:7px 4px;${avgPerHora===null?'border-bottom:none':''}"><span class="stat-label">Facturación media por bolo</span><span class="stat-amount" style="color:var(--ink)">${formatMoney(avgPerBolo)}</span></div>`;
     if(avgPerHora !== null){
-      html += `<div class="stat-row static"><span class="stat-label">Facturación media por hora</span><span class="stat-amount" style="color:var(--ink)">${formatMoney(avgPerHora)}/h</span></div>`;
+      html += `<div class="stat-row static" style="padding:7px 4px;border-bottom:none"><span class="stat-label">Facturación media por hora</span><span class="stat-amount" style="color:var(--ink)">${formatMoney(avgPerHora)}/h</span></div>`;
     } else {
-      html += `<p class="sheet-text" style="margin-top:8px">Añade la duración a tus bolos para ver el precio medio por hora.</p>`;
+      html += `<p class="sheet-text" style="margin-top:6px">Añade la duración a tus bolos para ver el precio medio por hora.</p>`;
     }
 
     const topBolos = topYearMonth(source, () => 1);
@@ -789,9 +796,13 @@
       const monthLabel = MESES[topBolos.month][0].toUpperCase()+MESES[topBolos.month].slice(1) + (isTodos ? ` ${topBolos.year}` : '');
       const monthEntries = source.filter(e => Number(e.fecha.slice(0,4)) === topBolos.year && Number(e.fecha.slice(5,7))-1 === topBolos.month);
       const segs = buildCharangaSegments(monthEntries);
-      html += `<div class="settings-divider"></div>`;
-      html += `<div class="list-section-title" style="font-size:14px">Mes con más bolos</div>`;
-      html += `<p class="sheet-text">${monthLabel} · ${topBolos.value} bolo${topBolos.value===1?'':'s'}</p>`;
+      html += `<div class="settings-divider" style="margin-top:6px"></div>`;
+      html += `
+        <div class="stats-section-header">
+          <div class="list-section-title" style="font-size:14px;margin-bottom:0">Mes con más bolos</div>
+          <div class="stats-section-value">${monthLabel} · ${topBolos.value} bolo${topBolos.value===1?'':'s'}</div>
+        </div>
+      `;
       html += `<div class="pie-block">${pieChartSvg(segs)}${pieLegendHtml(segs)}</div>`;
     }
 
@@ -801,22 +812,23 @@
       const monthEntries2 = source.filter(e => Number(e.fecha.slice(0,4)) === topMoney.year && Number(e.fecha.slice(5,7))-1 === topMoney.month);
       const segs2 = buildCharangaMoneySegments(monthEntries2);
       html += `<div class="settings-divider"></div>`;
-      html += `<div class="list-section-title" style="font-size:14px">Mes con más facturación</div>`;
-      html += `<p class="sheet-text">${monthLabel2} · ${formatMoney(topMoney.value)}</p>`;
+      html += `
+        <div class="stats-section-header">
+          <div class="list-section-title" style="font-size:14px;margin-bottom:0">Mes con más facturación</div>
+          <div class="stats-section-value">${monthLabel2} · ${formatMoney(topMoney.value)}</div>
+        </div>
+      `;
       html += `<div class="pie-block">${pieChartSvg(segs2)}${pieLegendHtml(segs2, true)}</div>`;
     }
 
-    html += `<div class="settings-divider"></div>`;
-    html += `<div class="list-section-title" style="font-size:14px">Charanga favorita</div>`;
     const winner = computeCharangaWinner(source);
-    if(winner){
-      html += `
-        <div class="winner-block">
-          <div class="winner-name" style="color:${winner.c.color}">${escapeHtml(winner.c.nombre)}</div>
-          <div class="winner-stats">${winner.count} fecha${winner.count===1?'':'s'} · ${formatMoney(winner.money)}</div>
-        </div>
-      `;
-    }
+    html += `<div class="settings-divider"></div>`;
+    html += `
+      <div class="stats-section-header">
+        <div class="list-section-title" style="font-size:14px;margin-bottom:0">Charanga favorita</div>
+        ${winner ? `<div class="stats-section-value"><strong style="color:${winner.c.color};font-size:13.5px">${escapeHtml(winner.c.nombre)}</strong> · ${formatMoney(winner.money)} · ${winner.count} bolo${winner.count===1?'':'s'}</div>` : ''}
+      </div>
+    `;
     const charangaSegs = buildCharangaSegments(source);
     html += charangaSegs.length
       ? `<div class="pie-block">${pieChartSvg(charangaSegs)}${pieLegendHtml(charangaSegs)}</div>`
@@ -1088,7 +1100,18 @@
     return totals;
   }
 
+  function monthlyCountsForYear(year, filterId){
+    const counts = new Array(12).fill(0);
+    cobradoEntries(filterId).forEach(e => {
+      const y = Number(e.fecha.slice(0,4));
+      const m = Number(e.fecha.slice(5,7)) - 1;
+      if(y === year) counts[m]++;
+    });
+    return counts;
+  }
+
   function yearTotal(year, filterId){ return monthlyTotalsForYear(year, filterId).reduce((a,b)=>a+b,0); }
+  function yearCount(year, filterId){ return monthlyCountsForYear(year, filterId).reduce((a,b)=>a+b,0); }
 
   function openCobradoSheet(year, filterId){
     filterId = filterId || '';
@@ -1096,6 +1119,7 @@
     const y = year || currentYear;
     const isCurrent = y === currentYear;
     const totals = monthlyTotalsForYear(y, filterId);
+    const counts = monthlyCountsForYear(y, filterId);
     const yearEntries = entries.filter(e => e.cobrado && Number(e.fecha.slice(0,4)) === y);
     const chips = filterChipsHtml(yearEntries, filterId, id => `openCobradoSheet(${y}, '${id}')`);
 
@@ -1110,7 +1134,7 @@
             ${years.map(yr => `
               <div class="stat-row" onclick="openCobradoSheet(${yr}, '${filterId}')">
                 <span class="stat-label">${yr}</span>
-                <span class="stat-amount">${formatMoney(yearTotal(yr, filterId))}</span>
+                <span class="stat-amount">${yearCount(yr, filterId)} bolo${yearCount(yr, filterId)===1?'':'s'} · ${formatMoney(yearTotal(yr, filterId))}</span>
               </div>
             `).join('')}
           </div>
@@ -1123,12 +1147,12 @@
       ${!isCurrent ? `<button class="sheet-back" onclick="openCobradoSheet(${currentYear}, '${filterId}')">‹ Todos los años</button>` : ''}
       <div class="sheet-title">Cobrado · ${y}</div>
       ${chips}
-      <p class="sheet-text">${formatMoney(yearTotal(y, filterId))} en total</p>
+      <p class="sheet-text">${yearCount(y, filterId)} bolo${yearCount(y, filterId)===1?'':'s'} · ${formatMoney(yearTotal(y, filterId))} en total</p>
       <div>
         ${MESES.map((mes,i) => `
           <div class="stat-row ${totals[i]===0?'is-empty':''}" onclick="openCobradoMonthSheet(${y}, ${i}, '${filterId}')">
             <span class="stat-label">${mes[0].toUpperCase()+mes.slice(1)}</span>
-            <span class="stat-amount">${formatMoney(totals[i])}</span>
+            <span class="stat-amount">${counts[i]>0 ? `${counts[i]} bolo${counts[i]===1?'':'s'} · ` : ''}${formatMoney(totals[i])}</span>
           </div>
         `).join('')}
       </div>
